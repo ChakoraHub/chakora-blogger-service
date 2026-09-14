@@ -1,0 +1,24 @@
+name: Deploy Blogger Service
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH and Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ${{ secrets.AWS_USERNAME }}
+          key: ${{ secrets.AWS_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.APP_PATH }}
+            # Safety precaution: Temporarily stash local file touches so pull succeeds cleanly
+            git stash --include-untracked
+            git pull origin main
+            git stash drop || true
+            pip install -r requirements.txt
+            pm2 restart blogger-service
