@@ -1,5 +1,5 @@
 """Updated claude blogger_service.py - cleaned queries, likes aggregation, stats endpoint"""
-
+# Testing sample code to Github for full DevOps integration with Github Actions
 import os
 import json
 import logging
@@ -23,9 +23,10 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@chakorahub.com")
 BLOG_PUBLIC_URL = os.getenv("BLOG_PUBLIC_URL", "https://www.chakorahub.com/blogger")
 ORACLE_HOST = os.getenv("ORACLE_HOST", "56.228.73.210")
 ORACLE_PORT = int(os.getenv("ORACLE_PORT", "1521"))
-ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREE")
-ORACLE_USER = os.getenv("ORACLE_USER", "system")
-ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Chakorahub123")
+ORACLE_SERVICE_NAME = os.getenv("ORACLE_SERVICE_NAME", "FREEPDB1")
+ORACLE_USER = os.getenv("ORACLE_USER", "SUPPORT")
+ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "Welcome123")
+ORACLE_SCHEMA = (os.getenv("ORACLE_SCHEMA", "CHAKORA") or "CHAKORA").strip().upper()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("blogger_service")
@@ -37,6 +38,7 @@ except Exception as e:
     ses_client = None
 
 app = FastAPI(title="ChakoraHub Blogger Service")
+os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(
     CORSMiddleware,
@@ -202,7 +204,7 @@ def get_active_subscriber_emails() -> List[str]:
             """
             SELECT DISTINCT LOWER(EMAIL)
             FROM BLOG_SUBSCRIBERS
-            WHERE IS_ACTIVE = TRUE
+            WHERE IS_ACTIVE = 1
               AND EMAIL IS NOT NULL
               AND TRIM(EMAIL) != ''
             """
@@ -282,7 +284,7 @@ def get_subscriber_count_data(use_cache: bool = True):
         return {"success": False, "count": 0}
 
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM BLOG_SUBSCRIBERS WHERE IS_ACTIVE = TRUE")
+    cursor.execute("SELECT COUNT(*) FROM BLOG_SUBSCRIBERS WHERE IS_ACTIVE = 1")
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -316,10 +318,10 @@ def get_blog_stats_data(use_cache: bool = True):
                 SELECT COUNT(*)
                 FROM BLOG_LIKES bl
                 JOIN BLOG_POSTS bp ON bp.ID = bl.POST_ID
-                WHERE bp.IS_PUBLISHED = TRUE
+                WHERE bp.IS_PUBLISHED = 1
             ) AS TOTAL_LIKES
         FROM BLOG_POSTS
-        WHERE IS_PUBLISHED = TRUE
+        WHERE IS_PUBLISHED = 1
         """
     )
     total_posts, total_reads, total_likes = cursor.fetchone()
@@ -338,6 +340,15 @@ def get_blog_stats_data(use_cache: bool = True):
 
 # ==================== DATABASE ====================
 
+oracledb.defaults.fetch_lobs = False
+
+
+def _read_lob(val):
+    if val is None:
+        return ""
+    if hasattr(val, "read"):
+        return val.read()
+    return str(val)
 def get_db_connection():
     try:
         dsn = oracledb.makedsn(
@@ -345,11 +356,15 @@ def get_db_connection():
             port=ORACLE_PORT,
             service_name=ORACLE_SERVICE_NAME,
         )
-        return oracledb.connect(
+        conn = oracledb.connect(
             user=ORACLE_USER,
             password=ORACLE_PASSWORD,
             dsn=dsn,
         )
+        cursor = conn.cursor()
+        cursor.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {ORACLE_SCHEMA}")
+        cursor.close()
+        return conn
 
     except Exception as e:
         print("DB connection error:", e)
@@ -418,12 +433,12 @@ def get_posts():
                     TITLE,
                     SUMMARY,
                     AUTHOR,
-                    PUBLISH_DATE AS DATE,
+                    PUBLISH_DATE,
                     IS_LOCKED,
                     VIEW_COUNT,
                     TAGS
                 FROM BLOG_POSTS
-                WHERE IS_PUBLISHED = TRUE
+                WHERE IS_PUBLISHED = 1
                 ORDER BY PUBLISH_DATE DESC
         """
 
@@ -435,10 +450,10 @@ def get_posts():
             base_posts.append({
                 "id": r[0],
                 "title": r[1],
-                "summary": r[2],
+                "summary": _read_lob(r[2]),
                 "author": r[3],
                 "date": str(r[4]),
-                "locked": r[5],
+                "locked": bool(r[5]),
                 "view_count": r[6] or 0,
                 "tags": r[7].split(",") if r[7] else []
             })
@@ -493,7 +508,7 @@ def get_post(post_id: int, request: Request):
         VIEW_COUNT
     FROM BLOG_POSTS
     WHERE ID = :1
-    AND IS_PUBLISHED = TRUE
+    AND IS_PUBLISHED = 1
     """
 
     cursor.execute(query, (post_id,))
@@ -521,12 +536,12 @@ def get_post(post_id: int, request: Request):
         "post": {
             "id": post[0],
             "title": post[1],
-            "summary": post[2],
-            "content": post[3],
+            "summary": _read_lob(post[2]),
+            "content": _read_lob(post[3]),
             "author": post[4],
             "date": str(post[5]),
             "tags": post[7].split(",") if post[7] else [],
-            "locked": post[6],
+            "locked": bool(post[6]),
             "view_count": (post[8] or 0) + 1,
             "like_count": blog_likes_get(post[0]),
         },
@@ -697,7 +712,7 @@ async def warm_cache_on_startup():
                     SELECT bp.ID, COUNT(bl.ID) AS LIKE_COUNT
                     FROM BLOG_POSTS bp
                     LEFT JOIN BLOG_LIKES bl ON bl.POST_ID = bp.ID
-                    WHERE bp.IS_PUBLISHED = TRUE
+                    WHERE bp.IS_PUBLISHED = 1
                     GROUP BY bp.ID
                     """
                 )
@@ -816,11 +831,13 @@ async def create_post(request: Request):
         except Exception:
             publish_dt = None
 
+    if not publish_dt:
+        publish_dt = datetime.now()
     try:
         query = """
         INSERT INTO BLOG_POSTS
         (TITLE, SUMMARY, CONTENT, AUTHOR, TAGS, IS_LOCKED, IS_PUBLISHED, PUBLISH_DATE, LIKE_COUNT, VIEW_COUNT)
-        VALUES (:1,:2,:3,:4,:5,:6,:7,COALESCE(:8, CURRENT_TIMESTAMP),0,0)
+        VALUES (:1,:2,:3,:4,:5,:6,:7,:8,0,0)
         """
 
         logger.info(
@@ -835,7 +852,7 @@ async def create_post(request: Request):
 
         cursor.execute(
             query,
-            (title, summary, content, author, tags, is_locked, is_published, publish_dt),
+            (title, summary, content, author, tags, 1 if is_locked else 0, 1 if is_published else 0, publish_dt),
         )
 
         try:
