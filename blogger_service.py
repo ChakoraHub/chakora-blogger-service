@@ -1,5 +1,5 @@
 """Updated claude blogger_service.py - cleaned queries, likes aggregation, stats endpoint"""
-# Testing sample code to Github for full DevOps integration with Github Actions
+# Testing Github Actions Workflow run
 import os
 import json
 import logging
