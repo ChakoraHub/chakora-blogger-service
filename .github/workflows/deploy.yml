@@ -1,3 +1,4 @@
+
 name: Deploy Blogger Service
 
 on:
@@ -18,10 +19,20 @@ jobs:
           username: ${{ secrets.AWS_USERNAME }}
           key: ${{ secrets.AWS_PRIVATE_KEY }}
           script: |
-            cd ${{ secrets.APP_PATH }}
-            # Safety precaution: Temporarily stash local file touches so pull succeeds cleanly
-            git stash --include-untracked
-            git pull origin main
-            git stash drop || true
-            pip install -r requirements.txt
+            set -e
+
+            cd "${{ secrets.APP_PATH }}"
+
+            echo "Fetching latest main branch..."
+            git fetch origin main
+
+            echo "Checking out latest main..."
+            git checkout -f -B main origin/main
+
+            echo "Installing Python requirements..."
+            ./venv/bin/pip install -r requirements.txt
+
+            echo "Restarting Blogger service..."
             pm2 restart blogger-service
+
+            echo "Deployment commands completed successfully."
