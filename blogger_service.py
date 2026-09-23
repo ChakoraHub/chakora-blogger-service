@@ -1,5 +1,5 @@
 """Updated claude blogger_service.py - cleaned queries, likes aggregation, stats endpoint"""
-# Testing Github Actions Workflow run (Test 3)
+# Testing Github Actions Workflow run (Test 4)
 import os
 import json
 import logging
@@ -15,7 +15,9 @@ from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 import uvicorn
+import secrets
 
 # ==================== CONFIG ====================
 AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
@@ -51,6 +53,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Persistent flag location: keep this OUTSIDE the Git checkout.
+MAINTENANCE_FLAG = Path(
+    os.getenv(
+        "MAINTENANCE_FLAG",
+        "/home/ec2-user/blogger-maintenance.flag"
+    )
+)
+
+MAINTENANCE_TOKEN = os.getenv("MAINTENANCE_TOKEN")
+
+def is_maintenance_enabled() -> bool:
+    return MAINTENANCE_FLAG.exists()
+
 # ==================== REDIS SERVICE (HTTP proxy — no direct redis import) ====================
 # All cache I/O is delegated to redis_service (port 6380).
 # blogger_service holds zero redis library imports.
@@ -66,6 +81,47 @@ app.add_middleware(
 
 REDIS_SERVICE_URL = os.getenv("REDIS_SERVICE_URL", "http://127.0.0.1:6380")
 
+
+@app.get("/blogger/maintenance/status")
+def maintenance_status():
+    return {
+        "maintenance_mode": is_maintenance_enabled()
+    }
+
+
+def verify_maintenance_token(request: Request):
+    supplied_token = request.headers.get(
+        "Authorization", ""
+    ).removeprefix("Bearer ").strip()
+
+    if not MAINTENANCE_TOKEN or not secrets.compare_digest(
+        supplied_token, MAINTENANCE_TOKEN
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
+
+
+@app.post("/admin/maintenance/on")
+def enable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.parent.mkdir(
+        parents=True, exist_ok=True
+    )
+    MAINTENANCE_FLAG.touch()
+
+    return {"success": True, "maintenance_mode": True}
+
+
+@app.post("/admin/maintenance/off")
+def disable_maintenance(request: Request):
+    verify_maintenance_token(request)
+
+    MAINTENANCE_FLAG.unlink(missing_ok=True)
+
+    return {"success": True, "maintenance_mode": False}
 
 def _rs(method: str, path: str, *, body=None, params: str = ""):
     """
