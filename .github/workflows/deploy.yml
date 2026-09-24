@@ -17,10 +17,31 @@ jobs:
           MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
         run: |
           set -e
+          echo "[maintenance:on] Starting maintenance enable request"
           test -n "$MAINTENANCE_ON_URL" || { echo "Missing BLOGGER_MAINTENANCE_ON_URL secret"; exit 1; }
-          curl --fail --silent --show-error --request POST \
+          if [ -n "$MAINTENANCE_TOKEN" ]; then
+            echo "[maintenance:on] MAINTENANCE_TOKEN is configured (length: ${#MAINTENANCE_TOKEN})"
+          else
+            echo "[maintenance:on] MAINTENANCE_TOKEN is empty"
+            exit 1
+          fi
+          echo "[maintenance:on] Endpoint is configured"
+          status=$(curl --silent --show-error --location --max-time 20 \
+            --output maintenance-on-response.txt \
+            --dump-header maintenance-on-headers.txt \
+            --write-out "%{http_code}" \
             --header "Authorization: Bearer $MAINTENANCE_TOKEN" \
-            "$MAINTENANCE_ON_URL"
+            --request POST "$MAINTENANCE_ON_URL" || true)
+          echo "[maintenance:on] HTTP status: $status"
+          echo "[maintenance:on] Response headers:"
+          sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-on-headers.txt || true
+          echo "[maintenance:on] Response body:"
+          cat maintenance-on-response.txt || true
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "[maintenance:on] Request failed"
+            exit 1
+          fi
+          echo "[maintenance:on] Maintenance enabled successfully"
 
   deploy:
     name: Deploy Blogger to EC2
@@ -58,7 +79,7 @@ jobs:
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v2
         with:
-          chrome-version: stable
+          chrome-version: "153.0.8010.52" # Match the runner's current browser version
           install-chromedriver: true
 
       - name: Install Selenium test dependencies
@@ -109,7 +130,28 @@ jobs:
           MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
         run: |
           set -e
+          echo "[maintenance:off] Starting maintenance disable request"
           test -n "$MAINTENANCE_OFF_URL" || { echo "Missing BLOGGER_MAINTENANCE_OFF_URL secret"; exit 1; }
-          curl --fail --silent --show-error --request POST \
+          if [ -n "$MAINTENANCE_TOKEN" ]; then
+            echo "[maintenance:off] MAINTENANCE_TOKEN is configured (length: ${#MAINTENANCE_TOKEN})"
+          else
+            echo "[maintenance:off] MAINTENANCE_TOKEN is empty"
+            exit 1
+          fi
+          echo "[maintenance:off] Endpoint is configured"
+          status=$(curl --silent --show-error --location --max-time 20 \
+            --output maintenance-off-response.txt \
+            --dump-header maintenance-off-headers.txt \
+            --write-out "%{http_code}" \
             --header "Authorization: Bearer $MAINTENANCE_TOKEN" \
-            "$MAINTENANCE_OFF_URL"
+            --request POST "$MAINTENANCE_OFF_URL" || true)
+          echo "[maintenance:off] HTTP status: $status"
+          echo "[maintenance:off] Response headers:"
+          sed 's/[Aa]uthorization:[^[:space:]]*/Authorization: [redacted]/g' maintenance-off-headers.txt || true
+          echo "[maintenance:off] Response body:"
+          cat maintenance-off-response.txt || true
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "[maintenance:off] Request failed"
+            exit 1
+          fi
+          echo "[maintenance:off] Maintenance disabled successfully"
