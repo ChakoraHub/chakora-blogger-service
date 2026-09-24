@@ -1,5 +1,5 @@
 """Updated claude blogger_service.py - cleaned queries, likes aggregation, stats endpoint"""
-# Testing Github Actions Workflow run (Test 5)
+# Testing Github Actions Workflow run (Test 6)
 import os
 import json
 import logging
@@ -18,6 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import uvicorn
 import secrets
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ==================== CONFIG ====================
 AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
