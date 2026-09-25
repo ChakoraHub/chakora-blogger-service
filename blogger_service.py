@@ -1,5 +1,5 @@
 """Updated claude blogger_service.py - cleaned queries, likes aggregation, stats endpoint"""
-# Testing Github Actions Workflow run (Test 7)
+# Testing Github Actions Workflow run (Test 8)
 import os
 import json
 import logging
