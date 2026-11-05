@@ -39,6 +39,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
             ghcr.io/chakorahub/chakora-blogger-service:v1
             ghcr.io/chakorahub/chakora-blogger-service:latest
